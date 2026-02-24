@@ -19,11 +19,29 @@ else:
 app = FastAPI()
 
 
+def _env_flag(name: str) -> bool:
+    return bool(os.getenv(name))
+
+
 @app.get("/health", response_class=JSONResponse)
 async def health() -> dict:
     return {
         "status": "ok",
         "linear_agent": bool(linear_agent),
+    }
+
+
+@app.get("/api/status", response_class=JSONResponse)
+async def status() -> dict:
+    """Lightweight integration status panel.
+
+    We just check for presence of env vars / obvious files, no heavy calls.
+    """
+    return {
+        "linear": bool(linear_agent) and _env_flag("LINEAR_API_KEY"),
+        "notion": _env_flag("NOTION_API_KEY"),
+        "agentmail": _env_flag("AGENTMAIL_API_KEY"),
+        "obsidian_vault": str(WORKSPACE / ".." / "ObsidianValt"),
     }
 
 
@@ -67,12 +85,24 @@ async def index() -> str:
   <body>
     <h1>Agent Dashboard</h1>
     <div id=\"status\">Loading...</div>
+    <div id=\"integrations\" style=\"margin-bottom: 1rem; font-size: 0.85rem;\"></div>
     <div class=\"columns\" id=\"board\" style=\"display:none\">
       <div class=\"col\" data-col=\"Todo\"><h2>Todo</h2><div class=\"items\"></div></div>
       <div class=\"col\" data-col=\"In Progress\"><h2>In Progress</h2><div class=\"items\"></div></div>
       <div class=\"col\" data-col=\"Done\"><h2>Done</h2><div class=\"items\"></div></div>
     </div>
     <script>
+      async function loadStatus() {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const el = document.getElementById('integrations');
+        const parts = [];
+        if (data.linear) parts.push('Linear ✅'); else parts.push('Linear ❌');
+        if (data.notion) parts.push('Notion ✅'); else parts.push('Notion ❌');
+        if (data.agentmail) parts.push('AgentMail ✅'); else parts.push('AgentMail ❌');
+        el.textContent = 'Integrations: ' + parts.join(' · ');
+      }
+
       async function loadBoard() {
         const res = await fetch('/api/linear/summary');
         const data = await res.json();
@@ -96,8 +126,9 @@ async def index() -> str:
           }
         }
       }
-      loadBoard().catch(err => {
-        document.getElementById('status').textContent = 'Failed to load board: ' + err;
+
+      Promise.all([loadStatus(), loadBoard()]).catch(err => {
+        document.getElementById('status').textContent = 'Failed to load dashboard: ' + err;
       });
     </script>
   </body>
